@@ -368,7 +368,7 @@ def _update_dict(dictionary, Y, code, verbose=False, return_r2=False,
             R = ger(-1.0, dictionary[:, k], code[k, :], a=R, overwrite_a=True)
         if non_negative:
             R = ger(1.0, dictionary[:, k], code[k, :], a=R, overwrite_a=True)
-            dictionary[:, k] = np.minimum(dictionary[:, k], 0)
+            dictionary[:, k] = np.maximum(dictionary[:, k], 0)
             R = ger(-1.0, dictionary[:, k], code[k, :], a=R, overwrite_a=True)
     if return_r2:
         R **= 2
