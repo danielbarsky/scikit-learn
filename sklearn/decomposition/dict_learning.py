@@ -304,7 +304,7 @@ def sparse_encode(X, dictionary, gram=None, cov=None, algorithm='lasso_lars',
 
 
 def _update_dict(dictionary, Y, code, verbose=False, return_r2=False,
-                 random_state=None):
+                 random_state=None, non_negative=False):
     """Update the dense dictionary factor in place.
 
     Parameters
@@ -327,6 +327,9 @@ def _update_dict(dictionary, Y, code, verbose=False, return_r2=False,
 
     random_state: int or RandomState
         Pseudo number generator state used for random sampling.
+
+    non_negative : bool
+        Whether or not to impose a non-negative constraint on the dictionary atoms
 
     Returns
     -------
@@ -363,6 +366,10 @@ def _update_dict(dictionary, Y, code, verbose=False, return_r2=False,
             dictionary[:, k] /= sqrt(atom_norm_square)
             # R <- -1.0 * U_k * V_k^T + R
             R = ger(-1.0, dictionary[:, k], code[k, :], a=R, overwrite_a=True)
+        if non_negative:
+            R = ger(1.0, dictionary[:, k], code[k, :], a=R, overwrite_a=True)
+            dictionary[:, k] = np.min(dictionary[:, k], np.zeros_like(dictionary[:, k]))
+            R = ger(-1.0, dictionary[:, k], code[k, :], a=R, overwrite_a=True)
     if return_r2:
         R **= 2
         # R is fortran-ordered. For numpy version < 1.6, sum does not
@@ -378,7 +385,7 @@ def _update_dict(dictionary, Y, code, verbose=False, return_r2=False,
 def dict_learning(X, n_components, alpha, max_iter=100, tol=1e-8,
                   method='lars', n_jobs=1, dict_init=None, code_init=None,
                   callback=None, verbose=False, random_state=None,
-                  return_n_iter=False):
+                  return_n_iter=False, non_negative=False):
     """Solves a dictionary learning matrix factorization problem.
 
     Finds the best dictionary and the corresponding sparse code for
@@ -436,6 +443,9 @@ def dict_learning(X, n_components, alpha, max_iter=100, tol=1e-8,
 
     return_n_iter : bool
         Whether or not to return the number of iterations.
+
+    non_negative : bool
+        Whether or not to impose a non-negative constraint on the dictionary atoms
 
     Returns
     -------
@@ -520,7 +530,7 @@ def dict_learning(X, n_components, alpha, max_iter=100, tol=1e-8,
         # Update dictionary
         dictionary, residuals = _update_dict(dictionary.T, X.T, code.T,
                                              verbose=verbose, return_r2=True,
-                                             random_state=random_state)
+                                             random_state=random_state, non_negative=non_negative)
         dictionary = dictionary.T
 
         # Cost function
@@ -551,7 +561,7 @@ def dict_learning_online(X, n_components=2, alpha=1, n_iter=100,
                          batch_size=3, verbose=False, shuffle=True, n_jobs=1,
                          method='lars', iter_offset=0, random_state=None,
                          return_inner_stats=False, inner_stats=None,
-                         return_n_iter=False):
+                         return_n_iter=False, non_negative=False):
     """Solves a dictionary learning matrix factorization problem online.
 
     Finds the best dictionary and the corresponding sparse code for
@@ -631,6 +641,9 @@ def dict_learning_online(X, n_components=2, alpha=1, n_iter=100,
 
     return_n_iter : bool
         Whether or not to return the number of iterations.
+
+    non_negative : bool
+        Whether or not to impose a non-negative constraint on the dictionary atoms
 
     Returns
     -------
@@ -739,7 +752,7 @@ def dict_learning_online(X, n_components=2, alpha=1, n_iter=100,
 
         # Update dictionary
         dictionary = _update_dict(dictionary, B, A, verbose=verbose,
-                                  random_state=random_state)
+                                  random_state=random_state, non_negative=non_negative)
         # XXX: Can the residuals be of any use?
 
         # Maybe we need a stopping criteria based on the amount of
@@ -1000,6 +1013,9 @@ class DictionaryLearning(BaseEstimator, SparseCodingMixin):
     random_state : int or RandomState
         Pseudo number generator state used for random sampling.
 
+    non_negative : bool
+        Whether or not to impose a non-negative constraint on the dictionary atoms
+
     Attributes
     ----------
     components_ : array, [n_components, n_features]
@@ -1029,7 +1045,7 @@ class DictionaryLearning(BaseEstimator, SparseCodingMixin):
                  fit_algorithm='lars', transform_algorithm='omp',
                  transform_n_nonzero_coefs=None, transform_alpha=None,
                  n_jobs=1, code_init=None, dict_init=None, verbose=False,
-                 split_sign=False, random_state=None):
+                 split_sign=False, random_state=None, non_negative=False):
 
         self._set_sparse_coding_params(n_components, transform_algorithm,
                                        transform_n_nonzero_coefs,
@@ -1042,6 +1058,7 @@ class DictionaryLearning(BaseEstimator, SparseCodingMixin):
         self.dict_init = dict_init
         self.verbose = verbose
         self.random_state = random_state
+        self.non_negative = non_negative
 
     def fit(self, X, y=None):
         """Fit the model from data in X.
@@ -1073,7 +1090,7 @@ class DictionaryLearning(BaseEstimator, SparseCodingMixin):
             dict_init=self.dict_init,
             verbose=self.verbose,
             random_state=random_state,
-            return_n_iter=True)
+            return_n_iter=True, non_negative=self.non_negative)
         self.components_ = U
         self.error_ = E
         return self
@@ -1160,6 +1177,9 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
     random_state : int or RandomState
         Pseudo number generator state used for random sampling.
 
+    non_negative : bool
+        Whether or not to impose a non-negative constraint on the dictionary atoms
+
     Attributes
     ----------
     components_ : array, [n_components, n_features]
@@ -1195,7 +1215,8 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
                  fit_algorithm='lars', n_jobs=1, batch_size=3,
                  shuffle=True, dict_init=None, transform_algorithm='omp',
                  transform_n_nonzero_coefs=None, transform_alpha=None,
-                 verbose=False, split_sign=False, random_state=None):
+                 verbose=False, split_sign=False, random_state=None,
+                 non_negative=False):
 
         self._set_sparse_coding_params(n_components, transform_algorithm,
                                        transform_n_nonzero_coefs,
@@ -1209,6 +1230,7 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
         self.batch_size = batch_size
         self.split_sign = split_sign
         self.random_state = random_state
+        self.non_negative = non_negative
 
     def fit(self, X, y=None):
         """Fit the model from data in X.
@@ -1235,7 +1257,7 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
             batch_size=self.batch_size, shuffle=self.shuffle,
             verbose=self.verbose, random_state=random_state,
             return_inner_stats=True,
-            return_n_iter=True)
+            return_n_iter=True, non_negative=self.non_negative)
         self.components_ = U
         # Keep track of the state of the algorithm to be able to do
         # some online fitting (partial_fit)
@@ -1280,7 +1302,7 @@ class MiniBatchDictionaryLearning(BaseEstimator, SparseCodingMixin):
             batch_size=len(X), shuffle=False,
             verbose=self.verbose, return_code=False,
             iter_offset=iter_offset, random_state=self.random_state_,
-            return_inner_stats=True, inner_stats=inner_stats)
+            return_inner_stats=True, inner_stats=inner_stats, non_negative=self.non_negative)
         self.components_ = U
 
         # Keep track of the state of the algorithm to be able to do
